@@ -1,0 +1,168 @@
+\documentclass[a4paper, 12pt]{article}
+\usepackage{amsmath}  % Para matemáticas avanzadas
+\usepackage{amssymb}  % Para símbolos matemáticos adicionales
+\usepackage{amsfonts} % Para fuentes matemáticas adicionales
+\usepackage{graphicx} % Para incluir gráficos
+\usepackage{geometry} % Para ajustar márgenes
+\usepackage{url}      % Para enlaces web
+\usepackage{fancyhdr} % Para encabezados y pies de página
+\usepackage{titlesec} % Para mejorar los títulos de las secciones
+\usepackage{microtype} % Para evitar problemas de desbordamiento de líneas
+\usepackage{csquotes}  % Para citas textuales
+\usepackage{natbib}    % Para gestionar bibliografía en formato APA
+\usepackage{parskip}   % Para añadir espacio entre párrafos
+\geometry{left=2.5cm, right=2.5cm, top=2.5cm, bottom=2.5cm}
+\bibliographystyle{apa} % Formato APA
+
+% Activar hipervínculos
+\usepackage[colorlinks=true, linkcolor=blue, urlcolor=blue, citecolor=blue]{hyperref}
+
+% Encabezado y pie de página
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{Bases de Datos II}
+\fancyhead[R]{Proyecto 2: DVD Rental}
+\fancyfoot[C]{\thepage}
+
+% Mejor estilo de título para secciones
+\titleformat{\section}{\large\bfseries}{\thesection}{1em}{}
+\titleformat{\subsection}{\normalsize\bfseries}{\thesubsection}{1em}{}
+
+% Ajustes de encabezado
+\setlength{\headheight}{14.5pt}
+\addtolength{\topmargin}{-2.5pt}
+
+\begin{document}
+
+% Portada
+\begin{titlepage}
+    \centering
+    {\Large\textbf{Tecnológico de Costa Rica}}\\[0.5cm]
+    {\Large\textbf{Escuela de Ingeniería en Computación}}\\[0.5cm]
+    {\Large\textbf{IC4302 Bases de Datos II}}\\[0.5cm]
+    {\Large\textbf{Grupo 20}}\\[2cm]
+
+    {\Large\bfseries Proyecto 2: Replicación y análisis de datos}\\[0.5cm]
+    {\Large\bfseries \emph{DVD Rental}}\\[2cm]
+
+    \textbf{\large Profesor:}\\
+    \large Alberto Shum Chan \\[1.5cm]
+
+    \textbf{\large Estudiantes:}\\[0.5cm]
+    \large Andrés Felipe Arias Corrales\\
+    2015028947\\[0.5cm]
+    \large Diego Esteban Castro Chaves\\
+    200419896\\[0.5cm]
+    \large Fabián José Fernández Fernández\\
+    2022144383\\[2cm]
+
+    \textbf{\large Fecha de Entrega:} 18 de Octubre del 2024\\[0.5cm]
+    \textbf{\large II semestre, 2024}
+\end{titlepage}
+
+% Índice
+\tableofcontents
+\newpage
+
+% Sección de Introducción
+\section{Introduction}
+This project involves the development of a DVD rental system using PostgreSQL and Business Intelligence (BI) techniques. The system includes data replication, dimensional modeling, and data visualization. In this document, we will describe the process followed for setting up the environment, implementing the database schema, and creating the required data visualizations using Tableau.
+
+% Sección de Objetivos
+\section{Objectives}
+The main objectives of this project are:
+\begin{itemize}
+    \item Implement a replication environment separating the transactional and multidimensional models.
+    \item Design and implement a dimensional model for a data mart.
+    \item Set up a PostgreSQL replica and load data into the dimensional model for OLAP queries.
+    \item Create a dashboard using Tableau to visualize key metrics such as the number of rentals and total revenue.
+\end{itemize}
+
+% Sección de Diseño de Base de Datos
+\section{Database Design}
+The transactional database model includes the following tables: \emph{actor}, \emph{film}, \emph{film\_actor}, \emph{category}, \emph{film\_category}, \emph{store}, \emph{inventory}, \emph{rental}, \emph{payment}, \emph{staff}, \emph{customer}, \emph{address}, \emph{city}, and \emph{country}. Each table was created following the normalization rules and includes appropriate primary and foreign keys.
+
+\subsection{ER Diagram}
+Below is the Entity-Relationship Diagram for the database:
+
+\begin{figure}[h!]
+    \centering
+    \includegraphics[width=0.8\textwidth]{er_diagram.png}
+    \caption{Entity-Relationship Diagram of the DVD Rental Database}
+\end{figure}
+
+\subsection{Table Definitions}
+The following section includes a description of each table along with the attributes and constraints:
+
+% Tabla de ejemplo
+\begin{table}[h!]
+    \centering
+    \begin{tabular}{|c|c|c|}
+        \hline
+        \textbf{Column Name} & \textbf{Data Type} & \textbf{Description} \\
+        \hline
+        actor\_id & SERIAL & Primary key for actors \\
+        first\_name & VARCHAR(50) & Actor's first name \\
+        last\_name & VARCHAR(50) & Actor's last name \\
+        last\_update & TIMESTAMP & Last update timestamp \\
+        \hline
+    \end{tabular}
+    \caption{Actor Table Definition}
+\end{table}
+
+% Sección de Seguridad
+\section{Security Configuration}
+We have implemented the following security measures:
+\begin{itemize}
+    \item \textbf{Roles}: Two roles were created: \emph{EMP} for employees with limited access and \emph{ADMIN} for administrators with extended privileges.
+    \item \textbf{Users}: Three users were created: \emph{video}, \emph{empleado1}, and \emph{administrador1}, each assigned their respective roles.
+    \item All stored procedures are configured to execute with the privileges of the \emph{video} user, ensuring restricted access.
+\end{itemize}
+
+% Sección de Modelo Multidimensional
+\section{Dimensional Model}
+The dimensional model is designed following the star schema and includes the following fact table and dimensions:
+
+\subsection{Fact Table: Rentals}
+The fact table includes measures such as:
+\begin{itemize}
+    \item \textbf{Number of Rentals}
+    \item \textbf{Total Revenue from Rentals}
+\end{itemize}
+
+\subsection{Dimensions}
+\begin{itemize}
+    \item \textbf{Film Dimension}: Hierarchy of category, film, and actors.
+    \item \textbf{Location Dimension}: Country and city hierarchy.
+    \item \textbf{Date Dimension}: Year, month, and day.
+    \item \textbf{Store Dimension}: Store information.
+\end{itemize}
+
+% Sección de Réplicas
+\section{Replication Process}
+We set up a replica of the PostgreSQL database to offload OLAP queries to the slave instance. The following steps were followed to configure replication:
+\begin{enumerate}
+    \item Installed and configured PostgreSQL replication settings.
+    \item Verified data synchronization between the master and slave instances.
+    \item Documented the steps and tested the configuration.
+\end{enumerate}
+
+% Sección de Visualización en Tableau
+\section{Data Visualization with Tableau}
+Using Tableau, we created several visualizations to analyze key metrics. The following visualizations were included in the dashboard:
+\begin{itemize}
+    \item Rentals and revenue per store, per month.
+    \item Total rentals per film category.
+    \item Top 10 actors by rental revenue.
+    \item A map visualization showing revenue by city.
+\end{itemize}
+
+% Sección de Conclusión
+\section{Conclusion}
+This project allowed us to implement a complete data solution that integrates a transactional system, replication, and business intelligence. We successfully implemented a dimensional model and created meaningful visualizations to assist in decision-making processes.
+
+% Sección de Referencias
+\newpage
+\bibliography{references}
+
+\end{document}
