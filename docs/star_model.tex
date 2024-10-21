@@ -5,8 +5,12 @@
 \usepackage{geometry}
 \usepackage{amsmath}
 \usepackage{hyperref}
+\usepackage{graphicx}  % Necesario para insertar gráficos
 
 \geometry{margin=1in}
+
+% Eliminar sangría en todo el documento
+\setlength{\parindent}{0pt}
 
 % Definir colores para el código SQL
 \lstdefinelanguage{SQL}{
@@ -34,7 +38,7 @@
     escapeinside={(*}{*)}
 }
 
-\title{Documentacion: Implementacion del Modelo Estrella}
+\title{Documentacion}
 \author{Fabian Fernandez, Diego Castro, Andres Corrales}
 \date{\today}
 
@@ -42,19 +46,277 @@
 
 \maketitle
 
+\setlength{\parindent}{0pt}  % Eliminar sangría después del título
+
 \section{Introduccion}
 
 Este documento proporciona una descripcion detallada de la implementacion de un esquema en estrella para el analisis de los datos de alquiler de peliculas utilizando PostgreSQL. El objetivo es crear un modelo dimensional que permita realizar consultas eficientes sobre las transacciones de alquiler para la generacion de informes y analisis. Este modelo incluye medidas como el numero de alquileres y el monto total recaudado, asi como dimensiones como peliculas, fechas de alquiler, direcciones y tiendas.
 
 Las siguientes secciones describen cada paso del proceso, desde la creacion del esquema hasta la carga de datos y su validacion.
 
-\section{Diseno del Esquema}
+\section{Descripcion del Dataset}
 
-El esquema en estrella consiste en una tabla de hechos que almacena las metricas clave (numero de alquileres y total de ingresos) y varias tablas de dimensiones que contienen informacion descriptiva (peliculas, fechas de alquiler, direcciones y tiendas).
+Para este proyecto, se ha utilizado la base de datos de ejemplo \textit{DVD Rental}, proporcionada por PostgreSQL. Esta base de datos simula los procesos de negocio de una tienda de alquiler de DVDs y contiene diversos objetos, tales como tablas, vistas, funciones y secuencias. En total, la base de datos contiene:
 
-\subsection{Tabla de Hechos: \texttt{fact\_rentals}}
+\begin{itemize}
+    \item 15 tablas.
+    \item 1 trigger.
+    \item 7 vistas.
+    \item 8 funciones almacenadas.
+    \item 1 dominio.
+    \item 13 secuencias.
+\end{itemize}
 
-La tabla \texttt{fact\_rentals} almacena las metricas principales como el numero de alquileres y los ingresos totales. Se relaciona con las tablas de dimensiones mediante claves foraneas.
+Las tablas más relevantes incluyen:
+
+\begin{itemize}
+    \item \texttt{actor}: Almacena datos de los actores, incluyendo el nombre y apellido.
+    \item \texttt{film}: Contiene información de las películas, como título, año de lanzamiento, duración, clasificación, etc.
+    \item \texttt{film\_actor}: Relaciona las películas con los actores.
+    \item \texttt{category}: Almacena los géneros de las películas.
+    \item \texttt{film\_category}: Relaciona las películas con sus categorías.
+    \item \texttt{store}: Almacena información sobre las tiendas, incluyendo los datos del gerente y la dirección.
+    \item \texttt{inventory}: Almacena los datos del inventario de cada tienda.
+    \item \texttt{rental}: Registra cada transacción de alquiler, incluyendo información sobre el cliente, la película, y las fechas de alquiler y devolución.
+    \item \texttt{payment}: Almacena los pagos de los clientes.
+    \item \texttt{customer}: Almacena los datos de los clientes, como nombre, dirección y estado de actividad.
+    \item \texttt{address}: Almacena las direcciones de los empleados y los clientes.
+    \item \texttt{city}: Almacena los nombres de las ciudades.
+    \item \texttt{country}: Almacena los nombres de los países.
+\end{itemize}
+
+Esta base de datos contiene todas las estructuras necesarias para realizar análisis de datos sobre los alquileres de películas, facilitando la construcción de un modelo multidimensional para analizar métricas clave como el número de alquileres y el total de ingresos.
+
+A continuación, se presenta un diagrama entidad-relación (ER) que muestra las relaciones entre las principales tablas de la base de datos:
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.7\textwidth]{diagrama.png}
+    \caption{Diagrama ER de la base de datos DVD Rental}
+    \label{fig:diagrama-er}
+\end{figure}
+
+Esta base de datos fue descargada del siguiente enlace: \url{https://www.postgresqltutorial.com/postgresql-getting-started/postgresql-sample-database/}. La estructura de esta base de datos es fundamental para implementar el modelo en estrella que permite realizar consultas agregadas y generar reportes avanzados basados en los datos históricos de los alquileres.
+
+\newpage
+\section{Réplica de la Base de Datos}
+
+Después de revisar los distintos tipos de replicación vistos en clase e investigando un poco más a fondo, tomamos la decisión de configurar un sistema de replicación \textbf{Hot Standby / Streaming}.
+
+Más específicamente hicimos la configuración \textbf{Hot Standby}, que permite que la instancia de réplica tenga acceso para operaciones de lectura, de forma que se pueda conectar con la aplicación de Tableau para hacer las operaciones de análisis de datos.
+
+Esta configuración trabaja de modo sincrónico, de manera que la réplica tiene los datos actualizados en todo momento. Si bien esto recarga el procesamiento de las transacciones en el motor de la base de datos, no afecta de manera considerable el tiempo de ejecución desde que estamos trabajando sobre la misma máquina y el resultado es casi imperceptible para el usuario.
+
+El sistema lo implementamos en una sola máquina instalada con \textbf{Windows 11}, utilizamos la versión \textbf{17 de PostgreSQL} y \textbf{Tableau Profesional Edition 2024.2.3} (usando el Trial de 14 días).
+
+Seguidamente describimos el proceso de instalación del sistema.
+
+\subsection{Creación de la Segunda Instancia de PostgreSQL y Configuración del Modelo de Replicación}
+
+La creación de una segunda instancia con réplica en modo \textbf{Hot Stream} en PostgreSQL la configuramos de la siguiente manera.
+
+Debemos considerar varias cosas antes de iniciar la configuración:
+\begin{itemize}
+    \item Conocer la versión de \textbf{PostgreSQL} (en nuestro caso era la 17).
+    \item Tener a mano la ubicación de instalación del motor de bases de datos (\texttt{C:/Program Files/PostgreSQL/17/}).
+    \item Tener un backup de la carpeta de datos por si ocurre algo inesperado, para no perder los datos que tengamos dentro de nuestra instancia.
+\end{itemize}
+
+Seguidamente se crea un directorio en donde se alojará la información de la segunda instancia. Nosotros usamos \texttt{C:/PostgreSQL/Replica/Data}.
+
+Luego vamos a inicializar el directorio de datos. Desde \textbf{PowerShell} nos dirigimos al directorio de instalación de PostgreSQL y ahí nos ubicamos en la carpeta \texttt{bin}.
+
+Ahí ejecutamos el siguiente comando:
+
+\begin{verbatim}
+./initdb -D "C:/PostgreSQL/Replica/Data" -U postgres -W
+\end{verbatim}
+
+Luego se debe configurar el archivo \texttt{postgresql.conf} de la segunda instancia. Modificamos algunas líneas utilizando un editor de texto que reconozca código, como \textbf{Visual Studio Code}.
+
+Este archivo lo encontraremos en la carpeta que creamos para alojar la segunda instancia. Aquí, dentro de la carpeta \texttt{data}, se encuentran los archivos de configuración.
+
+\newpage
+Primero, cambiamos la línea de la dirección de escucha con la siguiente configuración:
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.7\textwidth]{1.png}
+    \caption{Configuración de la dirección de escucha.}
+\end{figure}
+
+Segundo, modificamos el puerto al que se conecta la instancia para evitar conflicto con el puerto principal. Escogimos el puerto \textbf{5433}.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.7\textwidth]{2.png}
+    \caption{Modificación del puerto de conexión.}
+\end{figure}
+
+Por último, activamos el modo \textit{Hot Standby}.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.7\textwidth]{3.png}
+    \caption{Activación del modo Hot Standby.}
+\end{figure}
+
+Guardamos el archivo y continuamos con la configuración del archivo \texttt{pg\_hba.conf} de la segunda instancia. Este archivo también se encuentra en la carpeta \texttt{data} de la instancia de réplica.
+
+Abrimos el archivo y añadimos la siguiente línea al final:
+
+\begin{verbatim}
+host replication replicator 127.0.0.1/32 md5
+\end{verbatim}
+
+Luego guardamos y cerramos el archivo.
+
+\newpage
+\subsection{Configuración en la Instancia Principal}
+
+Abrimos \textbf{PGAdmin} para configurar la replicación en nuestro servidor. Creamos un usuario para la replicación en la instancia primaria con el siguiente script:
+
+\begin{verbatim}
+CREATE ROLE replicator WITH REPLICATION PASSWORD 'replica' LOGIN;
+\end{verbatim}
+
+Ahora editamos los archivos de configuración de la base de datos de la instancia principal, ubicada en \texttt{C:/Program Files/PostgreSQL/17/data}. Primero, abrimos \texttt{postgresql.conf} y modificamos las siguientes líneas:
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.7\textwidth]{4.png}
+    \caption{Configuración en \texttt{postgresql.conf}.}
+\end{figure}
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.7\textwidth]{5.png}
+    \caption{Configuración de los parámetros de replicación.}
+\end{figure}
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.7\textwidth]{6.png}
+    \caption{Configuración final en \texttt{postgresql.conf}.}
+\end{figure}
+
+Luego abrimos \texttt{pg\_hba.conf} y añadimos la misma línea que agregamos en la segunda instancia:
+
+\begin{verbatim}
+host replication replicator 127.0.0.1/32 md5
+\end{verbatim}
+
+Guardamos el archivo y reiniciamos la instancia principal para que los cambios tengan efecto, utilizando el administrador de servicios de \textbf{Windows} (\texttt{services.msc}).
+
+\newpage
+\subsection{Backup de la Base de Datos Principal en la Segunda Instancia}
+
+Para hacer un respaldo de la base de datos principal en la segunda instancia, nos ubicamos en la carpeta \texttt{bin} de la instancia principal y ejecutamos en \textbf{PowerShell} el siguiente comando:
+
+\begin{verbatim}
+./pg_basebackup -h localhost -p 5432 -D "C:/PostgreSQL/Replica/Data" -U replicator -Fp -Xs -P -R
+\end{verbatim}
+
+Este comando realiza un backup y lo coloca en la carpeta \texttt{data} de la segunda instancia. Luego verificamos que el archivo \texttt{standby.signal} exista. Además, revisamos que en \texttt{postgresql.auto.conf} o \texttt{postgresql.conf} esté la siguiente línea:
+
+\begin{verbatim}
+primary_conninfo = 'host=localhost port=5432 user=replicator password=replica'
+\end{verbatim}
+
+\subsection{Inicialización del Servicio de la Segunda Instancia}
+
+Para inicializar el servicio de la segunda instancia, creamos un archivo \textbf{.BAT} con el siguiente código:
+
+\begin{verbatim}
+@echo off
+"C:/Program Files/PostgreSQL/17/bin/pg_ctl.exe" runservice -N postgresql-replica -D  
+"C:/PostgreSQL/Replica/Data" -o "-p 5433"
+\end{verbatim}
+
+Y utilizamos el siguiente comando para crear el servicio:
+
+\begin{verbatim}
+sc create postgresql-replica-server binPath= "C:/PostgreSQL/start_postgres_replica.bat" 
+DisplayName= "PostgreSQL Replica Server" start= auto
+\end{verbatim}
+
+Luego verificamos la ejecución de los servicios desde el monitor de servicios de \textbf{Windows}.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.7\textwidth]{7.png}
+    \caption{Verificación de \texttt{PostgreSQL Replica Server}.}
+\end{figure}
+
+\newpage
+\subsection{Registro de la Réplica en PGAdmin}
+
+Finalmente, registramos la réplica en \textbf{PGAdmin}. Hacemos clic derecho en \texttt{SERVERS/REGISTER/SERVER...} y completamos la configuración:
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.7\textwidth]{8.png}
+    \caption{Registro de la réplica en PGAdmin.}
+\end{figure}
+
+Le damos un nombre al servidor, en nuestro caso \textit{Replica}.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.7\textwidth]{9.png}
+    \caption{Configuración de la réplica en PGAdmin.}
+\end{figure}
+
+\newpage
+Luego, en la pestaña de \textit{Connection}, introducimos los parámetros del \texttt{hostname} (localhost), el puerto (5433), el usuario (\texttt{replicator}) y la contraseña (\texttt{replica}).
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.7\textwidth]{10.png}
+    \caption{Configuración de conexión en PGAdmin.}
+\end{figure}
+
+Finalmente, el árbol de servidores se debería ver algo así:
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.7\textwidth]{11.png}
+    \caption{Verificación de la réplica funcionando correctamente.}
+\end{figure}
+
+Con esto, verificamos que todo esté funcionando. Creamos un actor nuevo en la tabla \texttt{actor} con el usuario principal (\texttt{postgres}), y luego, al conectarnos a la réplica, hicimos un \textbf{SELECT * FROM actor} para verificar la existencia del nuevo registro.
+
+\section{Modelo Multidimensional}
+
+Con el fin de analizar la información acumulada de los alquileres, se ha implementado un modelo multidimensional basado en un esquema en estrella utilizando PostgreSQL. El objetivo es crear un modelo eficiente para la consulta y análisis de las transacciones de alquileres. Este modelo está diseñado para permitir la generación de informes y análisis dinámicos sobre métricas clave como el número de alquileres y el monto total cobrado por alquileres.
+
+\subsection{Medidas de Interés}
+
+Las medidas de interés para este análisis son las siguientes:
+\begin{itemize}
+    \item \textbf{Número de alquileres}: El número total de transacciones de alquiler registradas.
+    \item \textbf{Monto total cobrado}: La cantidad total de ingresos generados por los alquileres.
+\end{itemize}
+
+\subsection{Dimensiones de Interés}
+
+El análisis se realizará considerando las siguientes dimensiones:
+\begin{itemize}
+    \item \textbf{Película (Film)}: Jerarquía que incluye categoría, película y actores.
+    \item \textbf{Lugar (Address)}: Jerarquía que incluye país y ciudad.
+    \item \textbf{Fecha (Rental)}: Jerarquía que incluye año, mes y día.
+    \item \textbf{Sucursal (Store)}: Información sobre las tiendas donde se realizaron los alquileres.
+\end{itemize}
+
+A partir de esta información, se ha diseñado y construido un esquema en estrella compuesto por una tabla de hechos (\texttt{fact\_rentals}) y varias tablas de dimensiones (\texttt{dim\_film}, \texttt{dim\_address}, \texttt{dim\_rental\_date}, \texttt{dim\_store}). Este modelo será la base para futuras visualizaciones y análisis de los datos.
+
+\subsection{Diseño del Esquema Estrella}
+
+El esquema en estrella incluye las siguientes tablas:
+
+\subsubsection{Tabla de Hechos: \texttt{fact\_rentals}}
+
+La tabla de hechos \texttt{fact\_rentals} almacena las métricas clave de los alquileres, como el número de transacciones y los ingresos totales generados. Las relaciones con las tablas de dimensiones se realizan a través de claves foráneas.
 
 \begin{lstlisting}
 CREATE TABLE fact_rentals (
@@ -68,14 +330,9 @@ CREATE TABLE fact_rentals (
 );
 \end{lstlisting}
 
-\newpage
-\subsection{Tablas de Dimensiones}
+\subsubsection{Tabla de Dimensiones: \texttt{dim\_film}}
 
-Las tablas de dimensiones describen los atributos relacionados con cada medida en la tabla de hechos.
-
-\subsubsection{Tabla: \texttt{dim\_film}}
-
-Esta tabla almacena informacion sobre las peliculas, incluidos sus titulos, categorias y actores.
+Esta tabla contiene información sobre las películas, incluidas su categoría, título y los actores asociados. Los datos son extraídos de las tablas originales del sistema transaccional y se almacenan en esta dimensión para facilitar el análisis.
 
 \begin{lstlisting}
 CREATE TABLE dim_film (
@@ -86,9 +343,9 @@ CREATE TABLE dim_film (
 );
 \end{lstlisting}
 
-\subsubsection{Tabla: \texttt{dim\_address}}
+\subsubsection{Tabla de Dimensiones: \texttt{dim\_address}}
 
-La tabla \texttt{dim\_address} almacena informacion sobre la jerarquia de ubicaciones, incluyendo pais y ciudad.
+La tabla \texttt{dim\_address} almacena información jerárquica sobre las ubicaciones, incluidos el país y la ciudad. Esta tabla permite analizar los alquileres en función de la ubicación geográfica.
 
 \begin{lstlisting}
 CREATE TABLE dim_address (
@@ -98,9 +355,9 @@ CREATE TABLE dim_address (
 );
 \end{lstlisting}
 
-\subsubsection{Tabla: \texttt{dim\_rental\_date}}
+\subsubsection{Tabla de Dimensiones: \texttt{dim\_rental\_date}}
 
-Esta tabla representa la jerarquia de fechas de alquiler, con los campos ano, mes y dia.
+Esta tabla contiene la jerarquía de fechas, lo que permite desglosar los alquileres por año, mes y día. La tabla es utilizada para realizar análisis temporales de las transacciones de alquileres.
 
 \begin{lstlisting}
 CREATE TABLE dim_rental_date (
@@ -111,9 +368,9 @@ CREATE TABLE dim_rental_date (
 );
 \end{lstlisting}
 
-\subsubsection{Tabla: \texttt{dim\_store}}
+\subsubsection{Tabla de Dimensiones: \texttt{dim\_store}}
 
-La tabla \texttt{dim\_store} almacena informacion sobre las tiendas donde se realizan los alquileres.
+La tabla \texttt{dim\_store} almacena información sobre las tiendas donde se realizaron los alquileres, lo que permite analizar los datos a nivel de sucursal.
 
 \begin{lstlisting}
 CREATE TABLE dim_store (
@@ -123,156 +380,146 @@ CREATE TABLE dim_store (
 \end{lstlisting}
 
 \newpage
-\section{Procedimientos Almacenados}
+\subsection{Procedimientos Almacenados para la Carga de Datos}
 
-Se utilizan procedimientos almacenados para cargar datos en las tablas de hechos y dimensiones desde la base de datos transaccional. Tambien implementamos estrategias para evitar la duplicacion de datos.
+Para alimentar las tablas del modelo multidimensional, se han desarrollado los siguientes procedimientos almacenados. Estos procedimientos se encargan de extraer los datos desde la base de datos transaccional y cargarlos en las tablas del esquema en estrella.
 
-\subsection{Procedimiento: \texttt{load\_fact\_rentals}}
+\subsubsection{Procedimiento: \texttt{load\_fact\_rentals}}
 
-Este procedimiento agrega datos de alquiler de las tablas transaccionales y los inserta en la tabla \texttt{fact\_rentals}. Antes de insertar, se eliminan los registros existentes para asegurar la consistencia de los datos.
+Este procedimiento inserta los datos agregados sobre los alquileres en la tabla \texttt{fact\_rentals}, calculando el número de alquileres y el total de ingresos por transacción.
 
 \begin{lstlisting}
 CREATE OR REPLACE FUNCTION load_fact_rentals()
 RETURNS VOID AS $$
 BEGIN
-    -- Eliminar registros existentes para evitar duplicacion
+    -- Eliminar registros existentes para evitar duplicaciones
     DELETE FROM fact_rentals;
 
     -- Insertar nuevos datos de alquiler agregados
     INSERT INTO fact_rentals (film_id, address_id, store_id, rental_date, rental_count, total_amount)
     SELECT 
-        i.film_id,                    -- ID de la pelicula desde la tabla 'inventory'
-        a.address_id,                 -- ID de la direccion desde la tabla 'address'
-        s.store_id,                   -- ID de la tienda desde la tabla 'store'
-        r.rental_date,                -- Fecha de alquiler desde la tabla 'rental'
-        COUNT(r.rental_id) AS rental_count,    -- Conteo de alquileres
-        SUM(p.amount) AS total_amount         -- Suma del total de ingresos
+        i.film_id,                    -- ID de la pelicula
+        a.address_id,                 -- ID de la direccion
+        s.store_id,                   -- ID de la tienda
+        r.rental_date,                -- Fecha de alquiler
+        COUNT(r.rental_id) AS rental_count,    -- Numero de alquileres
+        SUM(p.amount) AS total_amount         -- Suma de ingresos
     FROM rental r
-    JOIN payment p ON r.rental_id = p.rental_id        -- Unir con 'payment' para obtener el monto total
-    JOIN customer c ON r.customer_id = c.customer_id   -- Unir con 'customer' para obtener la direccion
-    JOIN address a ON c.address_id = a.address_id      -- Unir con 'address' para obtener la ubicacion
-    JOIN inventory i ON r.inventory_id = i.inventory_id -- Unir con 'inventory' para obtener el film_id
-    JOIN store s ON i.store_id = s.store_id            -- Unir con 'store' para obtener los detalles de la tienda
-    GROUP BY i.film_id, a.address_id, s.store_id, r.rental_date;  -- Agrupar por dimensiones
+    JOIN payment p ON r.rental_id = p.rental_id
+    JOIN customer c ON r.customer_id = c.customer_id
+    JOIN address a ON c.address_id = a.address_id
+    JOIN inventory i ON r.inventory_id = i.inventory_id
+    JOIN store s ON i.store_id = s.store_id
+    GROUP BY i.film_id, a.address_id, s.store_id, r.rental_date;
 END;
 $$ LANGUAGE plpgsql;
 \end{lstlisting}
 
-\newpage
-\subsection{Procedimiento: \texttt{load\_dim\_film}}
+\subsubsection{Procedimiento: \texttt{load\_dim\_film}}
 
-Este procedimiento carga la tabla \texttt{dim\_film} con datos de peliculas, incluidos el titulo, la categoria y los actores. La clausula \texttt{ON CONFLICT DO NOTHING} asegura que no se inserten duplicados.
+Este procedimiento carga la tabla de dimensión de películas con datos provenientes de las tablas de películas, categorías y actores.
 
 \begin{lstlisting}
 CREATE OR REPLACE FUNCTION load_dim_film()
 RETURNS VOID AS $$
 BEGIN
-    -- Insertar peliculas unicas junto con sus categorias y actores
     INSERT INTO dim_film (film_id, title, category, actor_name)
     SELECT 
-        f.film_id,                                -- ID de la pelicula desde la tabla 'film'
-        f.title,                                  -- Titulo desde la tabla 'film'
-        COALESCE(c.name, 'Unknown') AS category,  -- Categoria desde 'category', o 'Unknown' si falta
-        COALESCE(STRING_AGG(a.first_name || ' ' || a.last_name, ', '), 'No actors listed') AS actor_name -- Actores o por defecto
+        f.film_id,                                
+        f.title,                                  
+        COALESCE(c.name, 'Unknown') AS category,  
+        COALESCE(STRING_AGG(a.first_name || ' ' || a.last_name, ', '), 'No actors listed') AS actor_name
     FROM film f
-    LEFT JOIN film_category fc ON f.film_id = fc.film_id     -- Unir con film_category
-    LEFT JOIN category c ON fc.category_id = c.category_id   -- Unir con category
-    LEFT JOIN film_actor fa ON f.film_id = fa.film_id        -- Unir con film_actor
-    LEFT JOIN actor a ON fa.actor_id = a.actor_id            -- Unir con actor
+    LEFT JOIN film_category fc ON f.film_id = fc.film_id
+    LEFT JOIN category c ON fc.category_id = c.category_id
+    LEFT JOIN film_actor fa ON f.film_id = fa.film_id
+    LEFT JOIN actor a ON fa.actor_id = a.actor_id
     GROUP BY f.film_id, f.title, c.name
-    ON CONFLICT (film_id) DO NOTHING;  -- Evitar duplicados
+    ON CONFLICT (film_id) DO NOTHING;
 END;
 $$ LANGUAGE plpgsql;
 \end{lstlisting}
 
-\subsection{Procedimiento: \texttt{load\_dim\_address}}
+\subsubsection{Procedimiento: \texttt{load\_dim\_address}}
 
-Este procedimiento llena la tabla \texttt{dim\_address} con datos de ubicacion, incluidos ciudad y pais. La clausula \texttt{ON CONFLICT} evita la insercion de entradas duplicadas.
+Este procedimiento carga la tabla \texttt{dim\_address} con información jerárquica de ubicaciones.
 
 \begin{lstlisting}
 CREATE OR REPLACE FUNCTION load_dim_address()
 RETURNS VOID AS $$
 BEGIN
-    -- Insertar direcciones unicas con su ciudad y pais
     INSERT INTO dim_address (address_id, city, country)
     SELECT 
-        a.address_id,                -- ID de direccion desde la tabla 'address'
-        ci.city,                     -- Ciudad desde la tabla 'city'
-        co.country                   -- Pais desde la tabla 'country'
+        a.address_id,                
+        ci.city,                     
+        co.country                   
     FROM address a
-    JOIN city ci ON a.city_id = ci.city_id          -- Unir con city
-    JOIN country co ON ci.country_id = co.country_id -- Unir con country
-    ON CONFLICT (address_id) DO NOTHING;  -- Evitar duplicados
+    JOIN city ci ON a.city_id = ci.city_id
+    JOIN country co ON ci.country_id = co.country_id
+    ON CONFLICT (address_id) DO NOTHING;
 END;
 $$ LANGUAGE plpgsql;
 \end{lstlisting}
 
-\newpage
-\subsection{Procedimiento: \texttt{load\_dim\_rental\_date}}
+\subsubsection{Procedimiento: \texttt{load\_dim\_rental\_date}}
 
-Este procedimiento carga la tabla \texttt{dim\_rental\_date} con informacion de fechas de alquiler. Los duplicados se evitan utilizando \texttt{ON CONFLICT}.
+Este procedimiento carga las fechas en la tabla de dimensión \texttt{dim\_rental\_date}.
 
 \begin{lstlisting}
 CREATE OR REPLACE FUNCTION load_dim_rental_date()
 RETURNS VOID AS $$
 BEGIN
-    -- Insertar fechas de alquiler unicas en dim_rental_date
     INSERT INTO dim_rental_date (rental_date, year, month, day)
     SELECT 
-        DISTINCT r.rental_date,            -- Fecha de alquiler desde la tabla 'rental'
-        EXTRACT(YEAR FROM r.rental_date) AS year,   -- Extraer el ano desde la fecha de alquiler
-        EXTRACT(MONTH FROM r.rental_date) AS month, -- Extraer el mes desde la fecha de alquiler
-        EXTRACT(DAY FROM r.rental_date) AS day      -- Extraer el dia desde la fecha de alquiler
+        DISTINCT r.rental_date,            
+        EXTRACT(YEAR FROM r.rental_date) AS year,   
+        EXTRACT(MONTH FROM r.rental_date) AS month,
+        EXTRACT(DAY FROM r.rental_date) AS day
     FROM rental r
-    ON CONFLICT (rental_date) DO NOTHING;  -- Evitar duplicados
+    ON CONFLICT (rental_date) DO NOTHING;
 END;
 $$ LANGUAGE plpgsql;
 \end{lstlisting}
 
-\subsection{Procedimiento: \texttt{load\_dim\_store}}
+\subsubsection{Procedimiento: \texttt{load\_dim\_store}}
 
-Este procedimiento carga los datos de tiendas en la tabla \texttt{dim\_store}, evitando entradas duplicadas.
+Este procedimiento carga los datos de las tiendas en la tabla de dimensión \texttt{dim\_store}.
 
 \begin{lstlisting}
 CREATE OR REPLACE FUNCTION load_dim_store()
 RETURNS VOID AS $$
 BEGIN
-    -- Insertar tiendas unicas en dim_store con sus nombres
     INSERT INTO dim_store (store_id, store_name)
     SELECT 
-        s.store_id,                   -- ID de tienda desde la tabla 'store'
-        'Store ' || s.store_id AS store_name  -- Generar nombre de tienda dinamicamente
+        s.store_id,                   
+        'Store ' || s.store_id AS store_name
     FROM store s
-    ON CONFLICT (store_id) DO NOTHING;  -- Evitar duplicados
+    ON CONFLICT (store_id) DO NOTHING;
 END;
 $$ LANGUAGE plpgsql;
 \end{lstlisting}
 
-\newpage
-\subsection{Procedimiento: \texttt{load\_star\_schema}}
+\subsubsection{Procedimiento: \texttt{load\_star\_schema}}
 
-Este procedimiento ejecuta todos los procedimientos de carga individuales para poblar el esquema estrella. Primero se cargan las tablas de dimensiones, seguidas de la tabla de hechos.
+Este procedimiento ejecuta todos los procedimientos de carga individuales para poblar el esquema en estrella. Primero se cargan las tablas de dimensiones y luego la tabla de hechos.
 
 \begin{lstlisting}
 CREATE OR REPLACE FUNCTION load_star_schema()
 RETURNS VOID AS $$
 BEGIN
-    -- Cargar las tablas de dimensiones primero
     PERFORM load_dim_film();
     PERFORM load_dim_address();
     PERFORM load_dim_rental_date();
     PERFORM load_dim_store();
-
-    -- Luego cargar la tabla de hechos
     PERFORM load_fact_rentals();
 END;
 $$ LANGUAGE plpgsql;
 \end{lstlisting}
 
 \newpage
-\section{Pruebas y Validacion}
+\section{Pruebas y Validación}
 
-Para verificar que el esquema se ha poblado correctamente, se pueden utilizar las siguientes consultas SQL:
+Las siguientes consultas SQL se pueden utilizar para verificar que las tablas del modelo multidimensional han sido correctamente pobladas:
 
 \begin{lstlisting}
 -- Verificar los datos en dim_film
@@ -289,7 +536,11 @@ SELECT * FROM dim_store LIMIT 10;
 
 -- Verificar los datos en fact_rentals
 SELECT * FROM fact_rentals LIMIT 10;
+\end{lstlisting}
 
+Además, se pueden realizar consultas agregadas para verificar los datos de alquileres por película, tienda o por fecha:
+
+\begin{lstlisting}
 -- Datos agregados por pelicula
 SELECT film_id, SUM(rental_count) AS total_rentals, SUM(total_amount) AS total_revenue
 FROM fact_rentals
@@ -310,16 +561,282 @@ GROUP BY year, month
 LIMIT 10;
 \end{lstlisting}
 
-\newpage
-\section{Resume}
 
-La implementación de un esquema estrella para el análisis de datos de alquileres de películas en PostgreSQL ha demostrado ser una solución eficaz para organizar y estructurar grandes volúmenes de información. Este modelo permite transformar los datos transaccionales en un formato más accesible y eficiente para el análisis. A través de la separación de los datos en tablas de hechos y dimensiones, hemos logrado simplificar la manera en que se almacenan y consultan las métricas clave, como el número de alquileres y los ingresos totales.
+\section{Funciones y Procedimientos Almacenados}
 
-Las tablas de dimensiones proporcionan información detallada sobre las características de las entidades relevantes, como las películas, las tiendas, las ubicaciones geográficas y las fechas de alquiler. Este diseño mejora considerablemente la flexibilidad al realizar análisis de diferentes niveles de agregación, como por película, por ubicación o por fecha. Al centralizar las medidas en la tabla de hechos, es posible realizar cálculos y generar reportes de manera más coherente y rápida.
+En esta sección se describen las funciones y procedimientos almacenados que afectan directamente el sistema transaccional de la base de datos. Cada uno de estos procedimientos incluye descripciones detalladas de sus parámetros, salidas y bloques relevantes.
 
-Además, se han implementado mecanismos para asegurar la integridad y consistencia de los datos, evitando la duplicación de registros mediante el uso de la cláusula \texttt{ON CONFLICT DO NOTHING} en las inserciones. Esta técnica permite que las tablas puedan actualizarse de manera segura, incluso si los procedimientos de carga se ejecutan varias veces. A su vez, el uso de procedimientos almacenados facilita la automatización del proceso de carga, asegurando que el esquema estrella se mantenga actualizado a medida que los datos transaccionales evolucionan.
+\subsection{Procedimiento: \texttt{insert\_customer}}
 
-Otro beneficio importante de este diseño es la capacidad de mantener un bajo acoplamiento entre las tablas de hechos y las tablas de dimensiones, lo que facilita la actualización y mantenimiento del esquema. Las tablas de dimensiones pueden actualizarse de manera independiente de la tabla de hechos, permitiendo que los datos de soporte se enriquezcan sin afectar el almacenamiento de las medidas.
+\textbf{Descripción:}  
+Este procedimiento inserta un nuevo cliente en la tabla \texttt{customer}. Está diseñado para aceptar los datos principales de un cliente (nombre, apellidos, dirección, email, estado activo) y asociarlo a una tienda específica (\texttt{store\_id}). Además, el procedimiento genera automáticamente un identificador único para el cliente mediante una secuencia (\texttt{customer\_customer\_id\_seq}). La fecha de creación se establece automáticamente en la fecha actual.
 
-Este enfoque ofrece una estructura escalable y bien organizada para almacenar y consultar grandes volúmenes de datos. Gracias a la organización en torno a medidas clave y dimensiones descriptivas, esta implementación no solo permite un análisis eficiente, sino que también proporciona una base sólida para futuras ampliaciones, adaptándose a nuevos requerimientos o cambios en la fuente de datos original.
+\textbf{Parámetros:}
+\begin{itemize}
+    \item \texttt{p\_store\_id} (INTEGER): ID de la tienda donde se registra el cliente.
+    \item \texttt{p\_first\_name} (VARCHAR): Nombre del cliente.
+    \item \texttt{p\_last\_name} (VARCHAR): Apellido del cliente.
+    \item \texttt{p\_email} (VARCHAR): Email del cliente.
+    \item \texttt{p\_address\_id} (INTEGER): ID de la dirección del cliente.
+    \item \texttt{p\_active\_bool} (BOOLEAN): Estado activo del cliente (True/False).
+\end{itemize}
+
+\textbf{Uso:}
+Para insertar un nuevo cliente, se puede utilizar la siguiente llamada:
+
+\begin{lstlisting}[language=SQL]
+CALL insert_customer(1, 'Juan', 'Perez', 'juan.perez@testuserbd2.com', 101, TRUE);
+\end{lstlisting}
+
+\textbf{Código:}
+\begin{lstlisting}[language=SQL]
+CREATE OR REPLACE PROCEDURE insert_customer(
+    IN p_store_id INTEGER,        
+    IN p_first_name VARCHAR,      
+    IN p_last_name VARCHAR,       
+    IN p_email VARCHAR,           
+    IN p_address_id INTEGER,      
+    IN p_active_bool BOOLEAN      
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+    INSERT INTO customer(
+        customer_id, store_id, first_name, last_name, email, address_id, activebool, 
+        create_date, last_update, active
+    )
+    VALUES (
+        nextval('customer_customer_id_seq'),
+        p_store_id, p_first_name, p_last_name, p_email, p_address_id,
+        true, CURRENT_DATE, CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 1
+    );
+END;
+$$;
+\end{lstlisting}
+
+\subsection{Procedimiento: \texttt{register\_rent}}
+
+\textbf{Descripción:}  
+Este procedimiento permite registrar un alquiler de película en la tabla \texttt{rental}. Al ejecutarse, crea un nuevo registro en \texttt{rental} asociado a un cliente y a un ítem del inventario. También guarda la fecha del alquiler y el empleado que gestionó la transacción. El \texttt{return\_date} se deja en blanco, ya que se actualiza al momento de devolver la película.
+
+\textbf{Parámetros:}
+\begin{itemize}
+    \item \texttt{p\_inventory\_id} (INTEGER): ID del ítem de inventario alquilado.
+    \item \texttt{p\_customer\_id} (INTEGER): ID del cliente que realiza el alquiler.
+    \item \texttt{p\_staff\_id} (INTEGER): ID del empleado que gestiona el alquiler.
+\end{itemize}
+
+\textbf{Uso:}
+Para registrar un alquiler, se puede utilizar la siguiente llamada:
+
+\begin{lstlisting}[language=SQL]
+CALL register_rent(1, 1, 1);
+\end{lstlisting}
+
+\textbf{Código:}
+\begin{lstlisting}[language=SQL]
+CREATE OR REPLACE PROCEDURE register_rent(
+    p_inventory_id INTEGER, 
+    p_customer_id INTEGER, 
+    p_staff_id INTEGER
+)
+SECURITY DEFINER
+AS $$
+BEGIN
+    INSERT INTO rental (
+        rental_id, rental_date, inventory_id, customer_id, return_date, staff_id, last_update
+    )
+    VALUES (
+        nextval('rental_rental_id_seq'),  
+        NOW()::TIMESTAMP(0),  
+        p_inventory_id, p_customer_id, NULL,  
+        p_staff_id, NOW()::TIMESTAMP(0)
+    );
+END;
+$$;
+\end{lstlisting}
+
+\subsection{Procedimiento: \texttt{return\_movie}}
+
+\textbf{Descripción:}  
+Este procedimiento actualiza el registro de un alquiler cuando una película es devuelta, asignando la fecha y hora de la devolución al campo \texttt{return\_date} del alquiler.
+
+\textbf{Parámetro:}
+\begin{itemize}
+    \item \texttt{p\_rental\_id} (INTEGER): ID del alquiler que se va a actualizar.
+\end{itemize}
+
+\textbf{Uso:}
+Para devolver una película, se puede utilizar la siguiente llamada:
+
+\begin{lstlisting}[language=SQL]
+CALL return_movie(1);
+\end{lstlisting}
+
+\textbf{Código:}
+\begin{lstlisting}[language=SQL]
+CREATE OR REPLACE PROCEDURE return_movie(
+    p_rental_id INTEGER
+) 
+SECURITY DEFINER
+AS $$
+BEGIN
+    UPDATE rental
+    SET return_date = NOW()::TIMESTAMP(0) 
+    WHERE rental_id = p_rental_id;
+END;
+$$;
+\end{lstlisting}
+
+\subsection{Función: \texttt{search\_movie}}
+
+\textbf{Descripción:}  
+Esta función permite buscar películas por título en la tabla \texttt{film}. El usuario puede ingresar un término de búsqueda y la función devolverá todas las películas que contengan ese término en su título, ignorando mayúsculas o minúsculas.
+
+\textbf{Parámetro:}
+\begin{itemize}
+    \item \texttt{p\_titulo} (VARCHAR): Término de búsqueda que se usará para encontrar coincidencias en los títulos de películas.
+\end{itemize}
+
+\textbf{Retorno:}  
+La función devuelve una tabla con las siguientes columnas:
+\begin{itemize}
+    \item \texttt{return\_film\_id} (INTEGER): ID de la película.
+    \item \texttt{return\_title} (VARCHAR): Título de la película.
+    \item \texttt{r\_year} (YEAR): Año de lanzamiento de la película.
+\end{itemize}
+
+\textbf{Uso:}
+Para buscar películas, se puede utilizar la siguiente consulta:
+
+\begin{lstlisting}[language=SQL]
+SELECT * FROM search_movie('Inception');
+\end{lstlisting}
+
+\textbf{Código:}
+\begin{lstlisting}[language=SQL]
+CREATE OR REPLACE FUNCTION search_movie(p_titulo VARCHAR)
+RETURNS TABLE(
+    return_film_id INTEGER,      
+    return_title VARCHAR,        
+    r_year YEAR                  
+) 
+SECURITY DEFINER
+AS $$
+BEGIN
+    RETURN QUERY
+    SELECT film_id, title, release_year  
+    FROM film  
+    WHERE film.title ILIKE '%' || p_titulo || '%';  
+END;
+$$ LANGUAGE plpgsql;
+\end{lstlisting}
+
+\section{Seguridad}
+
+Para proteger los datos y asegurar que solo los usuarios autorizados puedan ejecutar ciertos procedimientos, se implementaron varios roles y usuarios con diferentes niveles de acceso. Esta seccion detalla los roles creados, los privilegios otorgados y los usuarios asociados.
+
+\subsection{Roles de Seguridad}
+
+Se crearon los siguientes roles para controlar el acceso a las funciones y procedimientos almacenados:
+
+\begin{itemize}
+    \item \textbf{EMP}: Este rol tiene el derecho de ejecutar ciertos procedimientos almacenados relacionados con el sistema de alquiler de peliculas, pero no puede leer ni actualizar directamente ninguna tabla de la base de datos. Sus privilegios incluyen:
+    \begin{itemize}
+        \item \texttt{register\_rent}: Registrar un alquiler.
+        \item \texttt{return\_movie}: Registrar una devolucion.
+        \item \texttt{search\_movie}: Buscar una pelicula.
+    \end{itemize}
+
+    \item \textbf{ADMIN}: Este rol tiene los mismos derechos que \textbf{EMP}, pero con privilegios adicionales para ejecutar el procedimiento que permite insertar nuevos clientes:
+    \begin{itemize}
+        \item \texttt{insert\_customer}: Insertar un nuevo cliente.
+    \end{itemize}
+\end{itemize}
+
+El siguiente codigo muestra la creacion y configuracion de estos roles:
+
+\begin{lstlisting}[language=SQL]
+-- Creacion del rol EMP con privilegios de login
+CREATE ROLE emp;
+ALTER ROLE emp WITH LOGIN PASSWORD 'password';
+
+-- Otorgar permisos de ejecucion de funciones y procedimientos al rol EMP
+GRANT EXECUTE ON FUNCTION search_movie(varchar) TO emp;
+GRANT EXECUTE ON PROCEDURE register_rent(p_inventory_id INTEGER, p_customer_id INTEGER, p_staff_id INTEGER) TO emp;
+GRANT EXECUTE ON PROCEDURE return_movie(p_rental_id INTEGER) TO emp;
+
+-- Creacion del rol ADMIN con los mismos derechos que EMP mas la habilidad de insertar clientes
+CREATE ROLE admin WITH INHERIT LOGIN PASSWORD 'password';
+GRANT emp TO admin;  -- Heredar los privilegios de EMP
+
+-- Otorgar permisos adicionales al rol ADMIN
+GRANT EXECUTE ON PROCEDURE insert_customer(p_store_id INTEGER, p_first_name VARCHAR, p_last_name VARCHAR, p_email VARCHAR, p_address_id INTEGER, p_active_bool BOOLEAN) TO admin;
+\end{lstlisting}
+
+\subsection{Usuarios}
+
+Se crearon usuarios especificos con roles asignados para que pudieran realizar las acciones necesarias en el sistema. Estos usuarios no tienen acceso directo a las tablas, solo pueden ejecutar los procedimientos que se les han asignado mediante sus roles.
+
+\begin{itemize}
+    \item \textbf{video}: Este usuario es el dueno de todas las tablas y procedimientos de la base de datos, pero no tiene privilegios de login para evitar accesos no autorizados.
+    \item \textbf{empleado1}: Usuario con el rol \texttt{EMP}, que tiene permiso para registrar alquileres, devoluciones y buscar peliculas.
+    \item \textbf{administrador1}: Usuario con el rol \texttt{ADMIN}, que ademas de las funciones de \texttt{EMP}, puede insertar nuevos clientes.
+\end{itemize}
+
+El siguiente codigo muestra la creacion y configuracion de estos usuarios:
+
+\begin{lstlisting}[language=SQL]
+-- Crear el usuario sin login "video"
+CREATE USER video;
+
+-- Asignar la propiedad de la base de datos y todas las tablas a "video"
+ALTER DATABASE dvdrental OWNER TO video;
+
+-- Asignar la propiedad de todas las tablas a "video"
+DO $$ 
+DECLARE
+    r RECORD;
+BEGIN
+    FOR r IN 
+        SELECT tablename FROM pg_tables WHERE schemaname = 'public' 
+    LOOP
+        EXECUTE 'ALTER TABLE public.' || r.tablename || ' OWNER TO video;';
+    END LOOP;
+END $$;
+
+-- Crear el usuario empleado1 con el rol EMP
+CREATE USER empleado1;
+ALTER USER empleado1 PASSWORD 'pass';
+GRANT emp TO empleado1;
+
+-- Crear el usuario administrador1 con el rol ADMIN
+CREATE USER administrador1;
+ALTER USER administrador1 PASSWORD 'pass';
+GRANT admin TO administrador1;
+\end{lstlisting}
+
+\subsection{Asignacion de Permisos para la Replicacion}
+
+Ademas, se creo un rol especial para manejar la replicacion de la base de datos. Este rol tiene privilegios para replicar los datos entre la instancia principal y la replica.
+
+\begin{lstlisting}[language=SQL]
+-- Creacion del rol replicator con privilegios de replicacion
+CREATE ROLE replicator WITH REPLICATION PASSWORD 'replica' LOGIN;
+
+-- Otorgar permisos de seleccion sobre todas las tablas al rol replicator
+DO $$ 
+DECLARE
+    r RECORD;
+BEGIN
+    FOR r IN 
+        SELECT tablename FROM pg_tables WHERE schemaname = 'public' 
+    LOOP
+        EXECUTE 'GRANT SELECT ON TABLE public.' || r.tablename || ' TO replicator;';
+    END LOOP;
+END $$;
+\end{lstlisting}
+
+
 \end{document}
