@@ -905,7 +905,142 @@ LIMIT 10;
 \newpage
 \section{Visualización y acceso por medio de interfaz gráfica al modelo estrella}
 
-% TODO: AGREGAR ESTA ULTIMA PARTE DE LA DOCUMENTACION
+Una vez creado el modelo estrella y cargado en la base de datos, se puede iniciar la creación del Dashboard, para visualizar los datos. Primeramente, se inicia creando la conexión al servidor de PostgreSQL, por medio de la segunda instancia de la Base de Datos.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.45\textwidth]{12.png}
+\hfill
+\includegraphics[width=0.45\textwidth]{13.png}
+\caption{Configuración inicial de la conexión a PostgreSQL.}
+\end{figure}
+
+\newpage
+Al ingresar los credenciales, configurados en la creación de la segunda instancia, se obtiene la conexión al servidor y se tiene acceso de lectura a todas las tablas. Se procede a la configuración del modelo de datos en Tableau, arrastrando las tablas y obteniendo el modelo estrella donde la tabla \texttt{fact\_rentals} es la central.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.3\linewidth]{14-1.png} % Ajustar tamaño de la imagen 14-1
+    \includegraphics[width=0.6\linewidth]{15-2.png} % Ajustar tamaño de la imagen 15-1, a la par de la 14-1
+    \caption{Configuración del modelo estrella en Tableau.}
+    \label{fig:modelo-estrella}
+\end{figure}
+
+\newpage
+Se procede a crear los cinco Worksheets y el Dashboard, dando solución a las 5 consultas proporcionadas.
+
+1. Para una sucursal (a seleccionar por el usuario), grafique el número de alquileres realizados y el monto cobrado por mes, sin importar el año.
+
+Objetivo: Mostrar el número de alquileres y el monto total cobrado por mes, con la opción de seleccionar una sucursal específica.
+
+\begin{itemize}
+    \item Abrir una nueva hoja de trabajo (New Worksheet).
+    \item Agregar el filtro Store Name desde la tabla \texttt{dim\_store} al estante de Filters.
+    \item Mostrar el filtro en la hoja (Show Filter).
+    \item Arrastrar \texttt{Month} desde \texttt{dim\_rental\_date} a Columns.
+    \item Arrastrar \texttt{Rental Count} y \texttt{Total Amount} desde \texttt{fact\_rentals} a Rows.
+    \item Crear un gráfico de doble eje seleccionando \texttt{Dual Axis} en el menú del eje.
+    \item Ajustar los gráficos desde el menú \texttt{Marks} (barras y líneas).
+\end{itemize}
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=1\linewidth]{16.png} % Ajustar el tamaño de la imagen 16
+    \caption{Gráfico de alquileres y montos cobrados por mes en una sucursal.}
+    \label{fig:alquileres-sucursal}
+\end{figure}
+
+Esta visualización muestra el número de alquileres y el monto total de ingresos generados por mes en una tienda específica, seleccionada por el usuario. La comparación entre los alquileres (barras) y los ingresos (línea) permite identificar picos en la actividad de la tienda, meses más rentables y la relación entre el volumen de alquileres y los ingresos generados. 
+
+\newpage
+2. Graficar para un año (a seleccionar por el usuario) los montos cobrados por alquileres por mes.
+
+Objetivo: Mostrar el monto total cobrado por alquileres por mes para un año seleccionado.
+
+\begin{itemize}
+    \item Abrir una nueva hoja de trabajo.
+    \item Agregar el filtro \texttt{Year} desde \texttt{dim\_rental\_date} al estante de Filters.
+    \item Mostrar el filtro en la hoja.
+    \item Arrastrar \texttt{Month} a Columns.
+    \item Arrastrar \texttt{Total Amount} a Rows.
+    \item Ajustar el gráfico a líneas en el menú \texttt{Marks}.
+\end{itemize}
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=1\linewidth]{17-1.png} % Ajustar el tamaño de la imagen 17
+    \caption{Montos cobrados por alquileres por mes para un año seleccionado.}
+    \label{fig:alquileres-año}
+\end{figure}
+
+Esta visualización presenta los ingresos mensuales totales generados por los alquileres en un año seleccionado por el usuario. Permite identificar patrones estacionales en la demanda, como meses específicos donde los ingresos son más altos o más bajos. La tendencia general ayuda a comprender cómo varían los ingresos a lo largo del año, lo que podría sugerir oportunidades para promociones o ajustes en la oferta de productos durante meses con menos ingresos.
+
+\newpage
+3. Para una categoría de película (a seleccionar por el usuario), graficar el número de alquileres y el monto cobrado por año.
+
+\begin{itemize}
+    \item Abrir una nueva hoja de trabajo.
+    \item Agregar el filtro \texttt{Category} desde \texttt{dim\_film} al estante de Filters.
+    \item Mostrar el filtro en la hoja.
+    \item Arrastrar \texttt{Year} desde \texttt{dim\_rental\_date} a Columns.
+    \item Arrastrar \texttt{Rental Count} y \texttt{Total Amount} a Rows.
+    \item Crear un gráfico de doble eje seleccionando \texttt{Dual Axis}.
+    \item Ajustar gráficos en el menú \texttt{Marks}.
+\end{itemize}
+
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=1\linewidth]{18-1.png} % Ajustar el tamaño de la imagen 18-1A
+    \caption{Gráfico del número de alquileres y montos cobrados por año para una categoría de película.}
+    \label{fig:alquileres-categoria}
+\end{figure}
+
+Esta visualización muestra el número de alquileres y el monto total de ingresos por año para una categoría de película seleccionada. Esto permite analizar cómo diferentes géneros o categorías de películas han sido rentables a lo largo del tiempo. También se puede observar si la popularidad de una categoría particular crece o disminuye con el tiempo y cómo esto impacta en los ingresos generales. Esta información es útil para decisiones de inventario y marketing.
+
+\newpage
+4. Para los 10 actores con más alquileres, graficar los montos totales de alquileres por año (a seleccionar por el usuario).
+
+\begin{itemize}
+    \item Abrir una nueva hoja de trabajo.
+    \item Crear un Set de los 10 actores principales desde \texttt{view\_film\_actors}.
+    \item Filtrar los actores principales arrastrando el Set al estante de Filters.
+    \item Arrastrar \texttt{Year} desde \texttt{dim\_rental\_date} a Columns.
+    \item Mostrar los filtros en la hoja.
+    \item Arrastrar \texttt{Total Amount} desde \texttt{fact\_rentals} a Columns.
+    \item Personalizar la gráfica en el menú \texttt{Marks}.
+\end{itemize}
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=1\linewidth]{19-1.png} % Ajustar el tamaño de la imagen 19-1
+    \caption{Montos cobrados por los 10 actores con más alquileres.}
+    \label{fig:alquileres-actores}
+\end{figure}
+
+Esta visualización muestra a los 10 actores que más ingresos generan por alquileres en los años seleccionados, utilizando barras horizontales para representar el total de ingresos por actor. Actores como Sandra Kilmer, Val Bolger y Harry Berry destacan por generar los mayores ingresos, lo que refleja una alta demanda de películas en las que participan. El filtro de años permite comparar los ingresos en diferentes periodos, facilitando la identificación de tendencias en la popularidad de estos actores a lo largo del tiempo. Esta visualización es útil para tomar decisiones sobre adquisiciones y promociones centradas en los actores más rentables.
+
+\newpage
+5. Despliegue un mapa de ciudades que presente por año el monto de alquiler total representado por el tamaño del punto sobre la ciudad.
+
+\begin{itemize}
+    \item Abrir una nueva hoja de trabajo.
+    \item Agregar el filtro \texttt{Year} desde \texttt{dim\_rental\_date} al estante de Filters.
+    \item Mostrar el filtro en la hoja.
+    \item Arrastrar \texttt{City} y \texttt{Country} desde \texttt{dim\_address} al área de trabajo.
+    \item Arrastrar \texttt{Total Amount} al estante de Size.
+    \item Ajustar el tamaño y color de los puntos en el menú \texttt{Marks}.
+\end{itemize}
+
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=1\linewidth]{20-1.png} % Ajustar el tamaño de la imagen 20-1
+    \caption{Mapa de ciudades con el monto de alquiler total representado por tamaño del punto.}
+    \label{fig:mapa-alquileres-ciudades}
+\end{figure}
+
+El mapa visualiza los ingresos totales por alquiler en distintas ciudades para un año seleccionado. El tamaño de los puntos en el mapa representa el nivel de ingresos, lo que facilita la identificación de ciudades clave donde se generan mayores ingresos por alquileres. Esta visualización es útil para entender la distribución geográfica de los ingresos, ayudando a detectar regiones con mayor demanda y posibles áreas de expansión o mejora en la oferta de productos.
 
 \newpage
 \section{Conclusiones}

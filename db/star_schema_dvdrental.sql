@@ -206,3 +206,13 @@ SELECT EXTRACT(YEAR FROM rental_date) AS year, EXTRACT(MONTH FROM rental_date) A
 FROM fact_rentals
 GROUP BY year, month
 LIMIT 10;
+
+-- View Creation
+
+CREATE OR REPLACE VIEW view_film_actors AS
+SELECT 
+    f.film_id,
+    f.title,
+    TRIM(unnest(string_to_array(f.actor_name, ','))) AS actor_name -- Split actor names into rows
+FROM 
+    dim_film f;
